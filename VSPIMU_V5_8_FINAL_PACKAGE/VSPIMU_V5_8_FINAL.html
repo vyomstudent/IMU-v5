@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>VSPIMU V5.8 Clinical Gait Screening + ESP32↔APP Parity</title>
+<style>
+:root{--bg:#0b1020;--card:#131a2d;--text:#edf2ff;--muted:#98a3bd;--line:#27314b;--accent:#65d6a1;--warn:#f4bd58;--bad:#ff7575;--blue:#77b7ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:14px}h1{font-size:23px;margin:0}.sub{color:var(--muted);font-size:11px;margin:3px 0 12px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px;min-width:0}.wide{grid-column:1/-1}.half{grid-column:span 2}.label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.09em}.value{font-size:21px;font-weight:750;margin-top:4px;line-height:1.12}.big{font-size:27px}.small{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.35}.ok{color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}.blue{color:var(--blue)}.diag{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px}.diag .card{padding:9px}.diag .value{font-size:15px}.plot{width:100%;height:190px;display:block;background:#0d1324;border:1px solid var(--line);border-radius:10px;margin-top:7px}.plot.smallplot{height:155px}.events{max-height:235px;overflow:auto;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}.note{border-left:3px solid var(--warn);padding-left:9px}.pill{display:inline-block;padding:4px 7px;border:1px solid var(--line);border-radius:999px;margin:2px 3px 0 0;font-size:10px;color:var(--muted)}@media(max-width:800px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.half{grid-column:1/-1}.diag{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:480px){.grid{grid-template-columns:1fr}.wide,.half{grid-column:1}.diag{grid-template-columns:repeat(2,minmax(0,1fr))}.plot{height:175px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>VSPIMU V5.8 — Shank Gait AI + Clinical Screening</h1>
+<div class="sub">LSM6DSO • classic ESP32 onboard TCN + WT + AFO • 208 Hz raw BLE + independent phone reference analytics</div>
+
+<div class="card wide" style="margin-bottom:9px">
+  <div class="label">Patient / report information</div>
+  <div class="grid" style="margin-top:7px">
+    <div class="card"><div class="label">Patient name</div><input id="patientName" type="text" placeholder="Enter patient name" oninput="VSPIMU.updatePatient()" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0d1324;color:var(--text)"></div>
+    <div class="card"><div class="label">Age</div><input id="patientAge" type="number" min="1" max="120" placeholder="Age" oninput="VSPIMU.updatePatient()" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0d1324;color:var(--text)"></div>
+    <div class="card"><div class="label">Sex</div><select id="patientSex" onchange="VSPIMU.updatePatient()" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0d1324;color:var(--text)"><option value="">Not entered</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other / not specified</option></select></div>
+    <div class="card"><div class="label">Notes</div><input id="patientNotes" type="text" placeholder="Optional symptoms / test note" oninput="VSPIMU.updatePatient()" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0d1324;color:var(--text)"></div>
+  </div>
+  <button id="generateReport" disabled onclick="VSPIMU.prepareReport()" style="margin-top:8px;width:100%;padding:11px;border:0;border-radius:9px;font-weight:800;background:#65d6a1;color:#07130e">Generate doctor-shareable report</button>
+  <div id="reportStatus" class="small" style="margin-top:6px">Stop the session, then generate the report.</div>
+</div>
+
+<div class="card wide" style="margin-bottom:9px">
+  <div class="label">System</div>
+  <div id="status" class="value">WAITING</div>
+  <div id="detail" class="small">Loading model…</div>
+</div>
+
+<div class="card wide" style="margin-bottom:9px">
+  <div class="label">Standardized 123-second journey</div>
+  <div class="grid" style="margin-top:7px">
+    <div class="card"><div class="label">Current phase</div><div id="journeyPhase" class="value">READY</div></div>
+    <div class="card"><div class="label">Phase time remaining</div><div id="journeyTimer" class="value">—</div></div>
+    <div class="card"><div class="label">Journey progress</div><div id="journeyProgress" class="value">0%</div></div>
+    <div class="card"><div class="label">Instruction</div><div id="journeyInstruction" class="value" style="font-size:15px">Press START ANALYSIS and follow each on-screen instruction.</div></div>
+  </div>
+  <div style="height:9px;background:#0d1324;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-top:8px"><div id="journeyBar" style="height:100%;width:0%;background:#65d6a1;transition:width .25s linear"></div></div>
+  <div id="journeyProtocol" class="small" style="margin-top:5px">0.0 / 123 s</div>
+</div>
+
+<div class="grid">
+  <div class="card"><div class="label">Screening impression</div><div id="screeningOverall" class="value">—</div><div class="small">literature-informed, not a diagnosis</div></div>
+  <div class="card"><div class="label">Gait-pattern flags</div><div id="gaitPatternScreen" class="value">—</div><div class="small">derived from cadence/variability/phase features</div></div>
+  <div class="card"><div class="label">Pace reference</div><div id="paceReference" class="value">—</div><div class="small">age/sex published step-frequency context</div></div>
+  <div class="card"><div class="label">Variability reference</div><div id="variabilityReference" class="value">—</div><div class="small">published stride-time CV context</div></div>
+
+  <div class="card"><div class="label">Model</div><div id="modelState" class="value">LOADING</div><div id="modelDetail" class="small">model.json</div></div>
+  <div class="card"><div class="label">Current activity</div><div id="activityMode" class="value blue">—</div><div class="small">heuristic: stationary / walking / transition</div></div>
+  <div class="card"><div class="label">Activity confidence</div><div id="activityConfidence" class="value">—</div><div class="small">current activity classification confidence</div></div>
+  <div class="card"><div class="label">Walking confidence</div><div id="walkingConfidence" class="value">—</div><div class="small">walking evidence confidence</div></div>
+  <div class="card"><div class="label">Stationary confidence</div><div id="stationaryConfidence" class="value">—</div><div class="small">stationary evidence confidence</div></div>
+  <div class="card"><div class="label">Current steps</div><div id="steps" class="value big">0</div><div class="small">LIVE while running • FINAL after STOP</div></div>
+  <div class="card"><div class="label">Session time</div><div id="sessionTime" class="value">—</div><div class="small">analysis session</div></div>
+
+  <div class="card"><div class="label">Active walking</div><div id="activeTime" class="value">00:00</div><div class="small">heuristic walking time</div></div>
+  <div class="card"><div class="label">Stationary</div><div id="stationaryTime" class="value">00:00</div><div class="small">heuristic no-motion time</div></div>
+  <div class="card"><div class="label">Transitions</div><div id="transitionTime" class="value">00:00</div><div class="small">uncertain activity periods</div></div>
+  <div class="card"><div class="label">Pace descriptor</div><div id="paceDescriptor" class="value">—</div><div class="small">cadence-based, not a diagnosis</div></div>
+
+  <div class="card"><div class="label">Cadence</div><div id="cadence" class="value big">—</div><div class="small">steps/min; corrected for one-shank sensing</div></div>
+  <div class="card"><div class="label">Step interval (estimated)</div><div id="stepTime" class="value">—</div><div class="small">≈ stride/2; opposite foot is not directly detected</div></div>
+  <div class="card"><div class="label">Stride time</div><div id="stride" class="value">—</div><div class="small">same-foot IC → IC</div></div>
+  <div class="card"><div class="label">Stride frequency</div><div id="strideFrequency" class="value">—</div><div class="small">gait cycles/second</div></div>
+
+  <div class="card"><div class="label">Stance time</div><div id="stance" class="value">—</div><div class="small">IC → FC / toe-off proxy</div></div>
+  <div class="card"><div class="label">Swing time</div><div id="swing" class="value">—</div><div class="small">FC → next same-foot IC</div></div>
+  <div class="card"><div class="label">Stance / stride</div><div id="stancePct" class="value">—</div><div class="small">percentage</div></div>
+  <div class="card"><div class="label">Swing / stride</div><div id="swingPct" class="value">—</div><div class="small">percentage</div></div>
+
+  <div class="card"><div class="label">Stride variability</div><div id="variability" class="value">—</div><div class="small">coefficient of variation</div></div>
+  <div class="card"><div class="label">Event confidence</div><div id="confidence" class="value">—</div><div class="small">TCN validation confidence where available</div></div>
+  <div class="card"><div class="label">IC / FC events</div><div class="value"><span id="icCount">0</span> / <span id="fcCount">0</span></div><div class="small">same-shank detected gait events</div></div>
+  <div class="card"><div class="label">Gait frequency</div><div id="gaitFrequency" class="value">—</div><div class="small">dominant 0.5–3 Hz spectral peak</div></div>
+
+  <div class="card"><div class="label">Current gait phase</div><div id="phase" class="value">—</div><div class="small"><span id="gaitState">—</span> • cycle <span id="phasePct">—</span></div></div>
+  <div class="card"><div class="label">Heel-strike proxy</div><div id="heelStrike" class="value">—</div><div class="small">TCN IC; IC is not always heel strike</div></div>
+  <div class="card"><div class="label">Toe-off proxy</div><div id="toeOff" class="value">—</div><div class="small">TCN FC; FC is used as final-contact/toe-off proxy</div></div>
+  <div class="card"><div class="label">Mid-swing</div><div id="midSwing" class="value">—</div><div class="small">time-normalized estimate around 75% cycle</div></div>
+
+  <div class="card"><div class="label">Swing angular-speed peak</div><div id="swingPeak" class="value">—</div><div class="small">dominant gyro axis: <span id="gyroAxis">—</span></div></div>
+  <div class="card"><div class="label">Peak timing</div><div id="swingPeakPct" class="value">—</div><div class="small">relative gait-cycle timing</div></div>
+  <div class="card"><div class="label">Gyro zero crossings</div><div id="zeroCross" class="value">—</div><div class="small">dominant gyro axis, latest swing; research feature</div></div>
+  <div class="card"><div class="label">Direct same-shank anchors</div><div id="sameShankSteps" class="value">0</div><div class="small">gyro/acceleration + wavelet-confirmed sensor-side events</div></div>
+
+  <div class="card"><div class="label">Tremor-band RMS</div><div id="tremorRms" class="value">—</div><div class="small">3–8 Hz band, acceleration magnitude proxy</div></div>
+  <div class="card"><div class="label">Tremor peak</div><div id="tremorPeak" class="value">—</div><div class="small">dominant 3–8 Hz spectral peak</div></div>
+  <div class="card"><div class="label">Freeze Index</div><div id="freezeIndex" class="value">—</div><div class="small">3–8 Hz power / 0.5–3 Hz power</div></div>
+  <div class="card"><div class="label">FOG research flag</div><div id="freezeFlag" class="value ok">not flagged</div><div class="small">study-specific threshold; not a diagnosis</div></div>
+
+  <div class="card"><div class="label">Motion RMS</div><div id="motionRms" class="value">—</div><div class="small">activity-detector composite</div></div>
+  <div class="card"><div class="label">Gyro RMS</div><div id="gyroRms" class="value">—</div><div class="small">instantaneous window</div></div>
+  <div class="card"><div class="label">Signal quality</div><div id="signalQuality" class="value">—</div><div class="small">packet drops: <span id="signalDrops">0</span> • saturation: <span id="saturation">0</span></div></div>
+  <div class="card"><div class="label">Spectral quality</div><div id="spectralQuality" class="value">—</div><div class="small">FFT window status</div></div>
+</div>
+
+<div class="grid" style="margin-top:9px">
+  <div class="card"><div class="label">LIVE step count</div><div id="liveSteps" class="value big">0</div><div class="small">low-latency signal/wavelet count</div></div>
+  <div class="card"><div class="label">FINAL step count</div><div id="finalSteps" class="value big">—</div><div class="small">available after retrospective reconciliation</div></div>
+  <div class="card"><div class="label">Detector</div><div id="stepDetectorStatus" class="value">WAITING</div><div class="small">real-time gyro/acceleration detector</div></div>
+  <div class="card"><div class="label">Wavelet confirmation</div><div id="waveletStatus" class="value">—</div><div class="small">localized wavelet support</div></div>
+  <div class="card"><div class="label">TCN validator</div><div id="tcnValidationStatus" class="value">live validator</div><div class="small">validator only — never primary live counter</div></div>
+  <div class="card"><div class="label">Finalization</div><div id="finalizationStatus" class="value">NOT READY</div><div class="small">full-session reconciliation status</div></div>
+  <div class="card"><div class="label">Step candidates</div><div id="stepCandidates" class="value">0</div><div class="small">signal-level candidates seen</div></div>
+  <div class="card"><div class="label">Step method</div><div id="stepMethod" class="value">—</div><div class="small">final retrospective step-count method</div></div>
+  <div class="card"><div class="label">Walking coverage</div><div id="stepCoverage" class="value">—</div><div class="small">protocol walking exposure used for step validation</div></div>
+  <div class="card"><div class="label">AFO support</div><div id="afoStatus" class="value">optional / waiting</div><div class="small">phase/cadence support only</div></div>
+</div>
+
+<div class="card wide" style="margin-top:9px">
+  <div class="label">Live accelerometer</div>
+  <div class="small"><span class="pill">X</span><span class="pill">Y</span><span class="pill">Z</span><span class="pill">MAG</span> raw acceleration in g • last ~2.4 s</div>
+  <canvas id="accCanvas" class="plot"></canvas>
+</div>
+
+<div class="card wide" style="margin-top:9px">
+  <div class="label">Live gyroscope</div>
+  <div class="small"><span class="pill">X</span><span class="pill">Y</span><span class="pill">Z</span><span class="pill">MAG</span> raw angular velocity • last ~2.4 s</div>
+  <canvas id="gyroCanvas" class="plot"></canvas>
+</div>
+
+<div class="grid" style="margin-top:9px">
+  <div class="card half"><div class="label">Tremor-band signal</div><div class="small">3–8 Hz reconstructed research signal from acceleration magnitude</div><canvas id="tremorCanvas" class="plot smallplot"></canvas></div>
+  <div class="card half"><div class="label">Gait-frequency trend</div><div id="gaitTrendStatus" class="small">BUILDING</div><canvas id="freqCanvas" class="plot smallplot"></canvas></div>
+</div>
+
+<div class="card wide" style="margin-top:9px">
+  <div class="label">Recent gait events</div>
+  <div class="small">* IC = initial contact / heel-strike proxy; FC = final contact / toe-off proxy. These are not interchangeable in every gait pattern.</div>
+  <div id="events" class="events" style="margin-top:7px">No accepted events yet.</div>
+</div>
+
+<div class="card wide" style="margin-top:9px">
+  <div class="label">Model diagnostics</div>
+  <div class="diag" style="margin-top:7px">
+    <div class="card"><div class="label">Backend</div><div id="backend" class="value">—</div></div>
+    <div class="card"><div class="label">Inference</div><div id="inferenceMs" class="value">—</div></div>
+    <div class="card"><div class="label">Continuity</div><div id="continuity" class="value">—</div></div>
+    <div class="card"><div class="label">Peak IC</div><div id="peakIC" class="value">—</div></div>
+    <div class="card"><div class="label">Peak FC</div><div id="peakFC" class="value">—</div></div>
+    <div class="card"><div class="label">Samples</div><div id="samples" class="value">0</div></div>
+  </div>
+  <div id="modelOutput" class="small" style="margin-top:7px">—</div>
+</div>
+
+<div class="card wide" style="margin-top:9px" id="parityCard">
+  <div class="label">ESP32 ↔ APP computational parity</div>
+  <div id="parityStatus" class="value blue">WAITING FOR ESP32 FINAL SUMMARY</div>
+  <div id="parityDetail" class="small">Parity runs after STOP, app retrospective reconciliation, and complete ESP32 IC/FC event transfer.</div>
+  <div class="diag" style="margin-top:7px">
+    <div class="card"><div class="label">Raw integrity</div><div id="parityRaw" class="small">Raw integrity: waiting</div></div>
+    <div class="card"><div class="label">Event timing</div><div id="parityEvents" class="small">Events: waiting for final IC/FC packets</div></div>
+    <div class="card"><div class="label">Numeric parity</div><div id="parityNumeric" class="small">Numeric parity: waiting</div></div>
+  </div>
+  <div id="parityChecks" class="events" style="margin-top:7px">No final parity verdict yet.</div>
+  <div class="small" style="margin-top:7px">PASS = all hard integrity checks + all numeric tolerances pass. WARN = integrity passes but at least one numeric tolerance is exceeded. FAIL = at least one hard integrity check fails. This is computational parity, not ground-truth accuracy.</div>
+</div>
+
+<div class="card wide note" style="margin-top:9px">
+  <div class="label">Clinical screening boundary</div>
+  <div class="small">This V5.8 page adds literature-informed screening metrics, onboard ESP32 analytics, independent phone reference analytics, and a doctor-shareable session report. It does not diagnose Parkinson’s disease, freezing of gait, tremor disorders, or any other medical condition. Freeze Index is a published spectral feature, but published performance varies and study-specific thresholds are not universally valid. Terrain classes such as stairs/up-slope/down-slope are deliberately not claimed in this single-shank V5.8 configuration.</div>
+</div>
+</div>
+
+<script src="tf.min.js"></script>
+<script src="v5_gait_V5_8_PARITY_FINAL.js"></script>
+<script src="v5_report_viewer_V5_8_FINAL.js"></script>
+</body>
+</html>
