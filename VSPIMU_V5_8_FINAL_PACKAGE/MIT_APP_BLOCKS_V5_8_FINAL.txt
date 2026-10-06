@@ -1,0 +1,446 @@
+VSPIMU V5.8 — MIT APP INVENTOR BLOCK CHANGES ONLY
+=================================================
+
+BASELINE
+--------
+Start from the V5.7 blocks you posted.
+
+DO NOT rebuild the project from zero.
+DO NOT replace the existing raw DATA_UUID ShortsReceived path.
+DO NOT replace RegisterForShorts.
+DO NOT change START / STOP / MTU / WebViewer1.HomeUrl.
+DO NOT change the existing raw sample JavaScript bridge.
+
+V5.8 adds:
+  1. ESP32 Analytics subscription using RegisterForBytes.
+  2. BytesReceived -> ESP32 analytics JavaScript bridge.
+  3. ESP32↔APP parity status handling.
+  4. Chunked REPORT_BEGIN / REPORT_CHUNK / REPORT_END handling for the V5.8
+     report transfer.
+
+The V5.8 ESP32 Analytics characteristic is:
+  SERVICE_UUID   = 7b8a0001-4f2a-4a2e-9e51-1d9b6d8d5001
+  ANALYTICS_UUID = 7b8a0004-4f2a-4a2e-9e51-1d9b6d8d5001
+
+The existing raw DATA characteristic remains:
+  DATA_UUID      = 7b8a0002-4f2a-4a2e-9e51-1d9b6d8d5001
+
+============================================================
+CHANGE 1 — ADD ANALYTICS REGISTERFORBYTES
+============================================================
+
+Use your existing V5.7 block:
+
+when BluetoothLE1.MTUChanged bytes
+
+KEEP:
+  if bytes >= 195 then
+    RegisterForShorts
+      serviceUuid         = SERVICE_UUID
+      characteristicUuid = DATA_UUID
+      signed              = true
+
+IMMEDIATELY AFTER that existing RegisterForShorts block, ADD:
+
+    call BluetoothLE1.RegisterForBytes
+      serviceUuid         = SERVICE_UUID
+      characteristicUuid = ANALYTICS_UUID
+      signed              = false
+
+Then keep the existing:
+  set global BLE_READY to true
+  WriteStrings(... CMD_UUID ... "PING")
+
+IMPORTANT:
+  RegisterForShorts = DATA_UUID only.
+  RegisterForBytes  = ANALYTICS_UUID only.
+  Analytics bytes are unsigned.
+
+Do NOT replace RegisterForShorts with RegisterForBytes.
+
+============================================================
+CHANGE 2 — ADD BluetoothLE1.BytesReceived
+============================================================
+
+ADD this NEW event:
+
+when BluetoothLE1.BytesReceived serviceUuid characteristicUuid byteValues
+
+  if serviceUuid = SERVICE_UUID
+     AND characteristicUuid = ANALYTICS_UUID
+  then
+
+    call WebViewer1.EvaluateJavaScript
+      script =
+        join(
+          "window.VSPIMU.receiveEspAnalyticsCsv(\"",
+          list to csv row byteValues,
+          "\");"
+        )
+
+The generated JavaScript must have this form:
+
+window.VSPIMU.receiveEspAnalyticsCsv("0,73,5,1,...");
+
+For a final summary there are exactly 168 byte values.
+For each IC/FC event packet there are exactly 144 byte values.
+
+DO NOT decode the 168-byte or 144-byte packet manually in App Inventor.
+The JavaScript performs the binary decoding.
+
+IMPORTANT:
+  Use LIST TO CSV ROW, not LIST TO CSV TABLE.
+  The byte values must remain decimal byte values 0–255.
+
+============================================================
+CHANGE 3 — ADD PARITY GLOBALS
+============================================================
+
+Add these App Inventor globals only if they do not already exist:
+
+  global PARITY_READY = false
+
+  global PARITY_VERDICT = "NOT READY"
+
+  global ESP_ANALYTICS_RECEIVING = false
+
+These globals are only for App Inventor-side status/debug display.
+The actual parity state and comparator live inside v5_gait_V5_8_PARITY_FINAL.js.
+
+You do NOT need to recreate the CRC, event matching, or metric tolerance logic
+as App Inventor blocks.
+
+============================================================
+CHANGE 4 — MODIFY WebViewer1.WebViewStringChange
+============================================================
+
+when WebViewer1.WebViewStringChange value
+
+  // --------------------------------------------------------
+  // 1. Decode the incoming JSON once.
+  // --------------------------------------------------------
+
+  set local d to
+    call Web1.JsonTextDecode
+      text = value
+
+  set local type to
+    lookup in pairs
+      key = "type"
+      dictionary = d
+
+  // --------------------------------------------------------
+  // 2. NORMAL STATUS MESSAGE
+  //
+  // V5.8 JavaScript sends:
+  //   {"type":"status","status":"...","detail":"..."}
+  //
+  // This includes:
+  //   READY
+  //   WARMUP
+  //   ANALYZING
+  //   FINALIZING
+  //   REPORT
+  //   REPORT ERROR
+  //   MODEL NOT READY
+  //   etc.
+  // --------------------------------------------------------
+
+  if type = "status" then
+
+    set local s to
+      lookup in pairs
+        key = "status"
+        dictionary = d
+
+    set local detail to
+      lookup in pairs
+        key = "detail"
+        dictionary = d
+
+    set LabelStatus.Text to
+      if
+        is empty? detail
+      then
+        s
+      else
+        join(
+          s,
+          " — ",
+          detail
+        )
+
+  // --------------------------------------------------------
+  // 3. ESP32 ↔ APP PARITY RESULT
+  //
+  // V5.8 JavaScript sends:
+  //
+  // {"type":"ESP_PARITY_RESULT",
+  //  "verdict":"PASS"|"WARN"|"FAIL",
+  //  "report":{...}}
+  //
+  // Detailed parity values are already displayed by the
+  // parity card inside WebViewer1.
+  //
+  // App Inventor only mirrors the final verdict.
+  // --------------------------------------------------------
+  
+  else if type = "ESP_PARITY_RESULT" then
+
+    set global PARITY_VERDICT to
+      lookup in pairs
+        key = "verdict"
+        dictionary = global d
+
+    set global PARITY_READY to true
+
+    set global ESP_ANALYTICS_RECEIVING to true
+
+    set LabelStatus.Text to
+      join(
+        "ESP32↔APP PARITY ",
+        global PARITY_VERDICT
+      )
+
+  // --------------------------------------------------------
+  // 4. MODEL ERROR
+  //
+  // V5.8 JavaScript sends:
+  // {"type":"model_error","error":"..."}
+  // --------------------------------------------------------
+
+  else if type = "model_error" then
+
+    set local err to
+      lookup in pairs
+        key = "error"
+        dictionary = d
+
+    set LabelStatus.Text to
+      join(
+        "TCN MODEL ERROR — ",
+        err
+      )
+
+  // --------------------------------------------------------
+  // 5. FINALIZATION ERROR
+  //
+  // V5.8 JavaScript sends:
+  // {"type":"finalization_error","error":"..."}
+  // --------------------------------------------------------
+
+  else if type = "finalization_error" then
+
+    set local err to
+      lookup in pairs
+        key = "error"
+        dictionary = d
+
+    set LabelStatus.Text to
+      join(
+        "FINALIZATION ERROR — ",
+        err
+      )
+
+  // --------------------------------------------------------
+  // 6. UNKNOWN / NON-JSON FALLBACK
+  //
+  // Keep a safe fallback so unexpected debug text is visible.
+  // --------------------------------------------------------
+
+  else
+
+    set LabelStatus.Text to value
+
+---
+
+Parity test included.
+
+Expected verdicts:
+  PASS
+  WARN
+  FAIL
+
+The actual detailed parity card is rendered automatically by the V5.8 HTML/JS
+inside WebViewer1.
+
+Therefore App Inventor does NOT need to display all individual parity metrics.
+LabelStatus is only a mirror/debug indicator.
+
+============================================================
+CHANGE 6 — DO NOT TRIGGER PARITY FROM START OR STOP BLOCKS
+============================================================
+
+KEEP your existing START block unchanged:
+
+  WebViewer1.RunJavaScript("window.VSPIMU.start();")
+  WriteStrings(... "START")
+
+KEEP your existing STOP block unchanged:
+
+  WriteStrings(... "STOP")
+  WebViewer1.RunJavaScript("window.VSPIMU.stop();")
+
+DO NOT add:
+  PARITY command
+  PARITY START
+  PARITY STOP
+  separate parity button
+  timer-based parity request
+
+V5.8 parity is automatic after STOP.
+
+The sequence is:
+
+  STOP
+    -> phone captures its final raw tail
+    -> phone retrospective reconciliation
+    -> ESP32 retrospective reconciliation
+    -> ESP32 final 168-byte summary
+    -> ESP32 IC event chunks (144 bytes each)
+    -> ESP32 FC event chunks (144 bytes each)
+    -> ESP32 final summary repeated
+    -> phone parity comparator
+    -> ESP_PARITY_RESULT
+
+============================================================
+WHAT DOES NOT CHANGE
+============================================================
+
+KEEP EXACTLY AS V5.7:
+
+  Device name:
+    GAIT-V5-C3
+
+  SERVICE_UUID:
+    7b8a0001-4f2a-4a2e-9e51-1d9b6d8d5001
+
+  DATA_UUID:
+    7b8a0002-4f2a-4a2e-9e51-1d9b6d8d5001
+
+  CMD_UUID:
+    7b8a0003-4f2a-4a2e-9e51-1d9b6d8d5001
+
+  MTU request:
+    247
+
+  Raw subscription:
+    RegisterForShorts
+    signed = true
+
+  Raw JavaScript bridge:
+    ShortsReceived -> receiveShortsCsv(...)
+
+  START command:
+    "START"
+
+  STOP command:
+    "STOP"
+
+  WebViewer1 HomeUrl:
+    http://localhost/vspimu_v5_single.html
+
+  CustomWebView id:
+    73
+
+============================================================
+FINAL V5.8 BLOCK DIFFERENCE
+============================================================
+
+Your V5.7 blocks become V5.8 by making these changes:
+
+A. MTUChanged
+   ADD:
+     RegisterForBytes(
+       SERVICE_UUID,
+       ANALYTICS_UUID,
+       signed=false
+     )
+
+B. New BluetoothLE event
+   ADD:
+     BytesReceived
+       -> filter ANALYTICS_UUID
+       -> WebViewer1.EvaluateJavaScript(
+            window.VSPIMU.receiveEspAnalyticsCsv(CSV(byteValues))
+          )
+
+C. WebViewStringChange
+   ADD:
+     ESP_PARITY_RESULT
+
+D. Existing CustomWebView PageLoaded / PrintWebContent blocks
+   KEEP.
+
+E. START / STOP / raw ShortsReceived
+   KEEP.
+
+============================================================
+FINAL DATA FLOW
+============================================================
+
+RAW PATH (UNCHANGED)
+  ESP32 DATA_UUID
+      -> RegisterForShorts
+      -> ShortsReceived
+      -> receiveShortsCsv()
+      -> PHONE ANALYTICS
+
+ANALYTICS / PARITY PATH (NEW)
+  ESP32 ANALYTICS_UUID
+      -> RegisterForBytes
+      -> BytesReceived
+      -> receiveEspAnalyticsCsv()
+      -> ESP32 summary/event reconstruction
+      -> raw CRC/sample validation
+      -> IC/FC event validation
+      -> metric tolerance validation
+      -> ESP32↔APP PARITY PASS/WARN/FAIL
+
+REPORT PATH (CHANGED FOR V5.8)
+  PHONE REPORT
+      -> REPORT_BEGIN
+      -> REPORT_CHUNK × N
+      -> REPORT_END
+      -> reconstruct global REPORT_HTML
+      -> CustomWebView.LoadHtml
+      -> PageLoaded
+      -> PrintWebContent
+      -> Android PDF print service
+
+============================================================
+DO NOT MAKE THESE MISTAKES
+============================================================
+
+1. Do NOT replace RegisterForShorts.
+2. Do NOT subscribe DATA_UUID with RegisterForBytes.
+3. Do NOT subscribe ANALYTICS_UUID with RegisterForShorts.
+4. Do NOT use signed=true for Analytics bytes.
+5. Do NOT decode the 168/144-byte packets manually in App Inventor.
+6. Do NOT change DATA_UUID.
+7. Do NOT change CMD_UUID.
+8. Do NOT change DEVICE_NAME.
+9. Do NOT add a parity START/STOP command.
+10. Do NOT expect one REPORT_HTML message in V5.8.
+11. Do NOT call LoadHtml on REPORT_BEGIN or REPORT_CHUNK.
+12. Do NOT print until REPORT_END confirms every chunk was received.
+13. Do NOT run parity while the session is still acquiring.
+14. The final parity verdict appears after finalization, not during the walk.
+
+============================================================
+V5.8 RESULT
+============================================================
+
+Existing V5.7 blocks
++
+RegisterForBytes(Analytics UUID)
++
+BytesReceived -> window.VSPIMU.receiveEspAnalyticsCsv(...)
++
+REPORT_BEGIN / REPORT_CHUNK / REPORT_END assembly
++
+ESP_PARITY_RESULT status branch
++
+existing CustomWebView LoadHtml / PageLoaded / PrintWebContent flow
+
+= required V5.8 App Inventor wiring.
