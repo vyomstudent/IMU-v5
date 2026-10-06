@@ -1,0 +1,56 @@
+VSPIMU V5.8.12 validation summary
+
+Purpose:
+- restore all user-visible UI/report branding to VSPIMU
+- fix ESP analytics/parity packets arriving while phone retrospective finalization is still running
+- prevent stale App Inventor packet-debug LabelStatus text from masking the final parity verdict
+- make report opening independent of iframe/srcdoc and provide a core fallback viewer
+
+Critical parity fix:
+- receiveEspAnalyticsCsv() now accepts analytics whenever the current session's parity transport epoch is open (state.parity.acceptEspAnalytics=true).
+- This remains open from START through STOP and the phone's asynchronous retrospective reconciliation.
+- Previously packets were discarded during the phone finalization interval because running/captureTail/finalizationReady were all false.
+- Final summary #2 remains the authoritative parity trigger.
+- Parity result is re-sent three times with unique nonces to survive App Inventor WebViewString event/status races.
+
+Report fix:
+- v5_report_viewer_V5_8_FINAL.js no longer monkey-patches prepareReport().
+- It registers window.VSPIMU.openPreparedReport() and renders the report directly in a same-document overlay.
+- v5_gait.js also contains a built-in same-document fallback viewer, so report opening no longer depends on the separate viewer JS loading successfully.
+- No iframe/srcdoc/contentDocument dependency remains in the canonical report viewer.
+
+UI branding:
+- visible dashboard title/h1 and generated report title/footer/file name are VSPIMU.
+- internal window.VSPIMU namespace remains unchanged.
+
+Arduino analytics transport:
+- READ + NOTIFY analytics characteristic
+- 168-byte summary / 144-byte event packets
+- 80 ms inter-packet spacing after STOP
+- no analytics transmission during live acquisition
+
+App Inventor required changes:
+- BytesReceived must NOT write LabelStatus.Text or show an "ESP ANALYTICS RX 168B | packet N" counter.
+- BytesReceived only calls window.VSPIMU.receiveEspAnalyticsCsv(...) for the Analytics UUID.
+- WebViewStringChange must handle type=ESP_PARITY_RESULT and make that assignment the final LabelStatus assignment in the event.
+- RegisterForBytes remains only in Connected.
+
+Static validation performed:
+- node --check v5_gait.js: PASS
+- node --check v5_report_viewer_V5_8_FINAL.js: PASS
+- firmware brace-count sanity: PASS (423 opening / 423 closing braces)
+- canonical packet static_asserts: PASS (168 / 144 bytes)
+- notification-only analytics call present; indication call absent
+- HTML visible title/h1 use VSPIMU
+- viewer contains no iframe/srcdoc/contentDocument path
+- canonical package contains exactly six intended files
+
+Transport/parity harness:
+- synthetic summary/event packets accepted while finalizationReady=false when parity transport epoch is open: PASS
+- summary packets counted and event chunks retained: PASS
+- after setting finalizationReady=true, parity engine computes a verdict and emits ESP_PARITY_RESULT: PASS
+- synthetic mismatch correctly produced FAIL, proving the state machine no longer hangs at NOT READY
+
+Not performed:
+- no physical ESP32 compile/upload was possible because an ESP32 Arduino compiler/toolchain is not installed in this environment
+- no live Android/App Inventor end-to-end run was possible in this environment
