@@ -1,0 +1,21 @@
+docker compose -f docker-compose.yml -f docker-compose.windows-ble.yml run --rm --service-ports ble_data_collector
+
+
+python windows_ble_bridge.py
+
+
+
+docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Ports}}" 
+
+docker rm -f 
+
+
+
+
+python hs_to_marker.py 
+
+python gait_4_graph_spatial_temporal_safe.py 
+
+python accel_plot_right_foot_final.py 
+
+python gyro_plot_right_foot_final.py 
