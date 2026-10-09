@@ -1,0 +1,4 @@
+stride,start_s,end_s,stride_time_s,stride_length_m,stride_height_m,valid,reason
+1,8.269086837768555,14.998697519302368,6.7296106815338135,7.009145207534265,1.7268478985110094,False,stride time 6.73s (missed HS?); BLE gap > 0.3s; length 7.01m out of range; height 1.727m out of range
+2,14.998697519302368,17.471362829208374,2.472665309906006,0.9756346672643397,0.557269967922489,False,BLE gap > 0.3s; height 0.557m out of range
+3,17.471362829208374,23.695167303085327,6.223804473876953,5.019321361640182,2.189510452801043,False,stride time 6.22s (missed HS?); BLE gap > 0.3s; length 5.02m out of range; height 2.190m out of range
