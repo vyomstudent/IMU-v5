@@ -1,3 +1,0 @@
-Fields: META,trigger_micros,bmi_rows,lsm_rows,bmi_possible_gaps,lsm_possible_gaps,bmi_read_errors,lsm_read_errors
-META,12457301,1384,1384,0,2766,0,0
-TRIGGER_SOURCE,SERIAL
