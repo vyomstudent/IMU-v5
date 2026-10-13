@@ -67,6 +67,26 @@ jobs:
         shell: bash
         run: gradle --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug
 
+      - name: Print complete lint findings and test counts
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          report = Path('native-android/app/build/reports/lint-results-debug.xml')
+          if report.exists():
+              for issue in ET.parse(report).getroot().findall('issue'):
+                  print(f"{issue.get('severity')} [{issue.get('id')}]: {issue.get('message')}")
+                  for location in issue.findall('location'):
+                      print(f"  {location.get('file')}:{location.get('line')}")
+          else:
+              print('Lint XML report not produced.')
+          for report in Path('native-android/app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              suite = ET.parse(report).getroot()
+              print(f"JVM suite {suite.get('name')}: tests={suite.get('tests')}, failures={suite.get('failures')}, errors={suite.get('errors')}")
+          PY
+
       - name: Record build evidence and APK checksum
         shell: bash
         run: |

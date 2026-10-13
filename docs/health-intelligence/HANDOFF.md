@@ -1,7 +1,7 @@
 # Compact handoff — 2026-10-13
 
 ## Current objective and constraints
-Prioritize a compilable foreground Kotlin dual-IMU MVP and a cloud-built debug APK. Branch `codex/vspimu-health-intelligence`; baseline `7b3d271f196b2425a65f5294c1d74dba039dfaf1`. No remote push/public change, main edit, merge or publication authorized. Zero billing, no API keys, no local Android toolchain installation or APK builds. Full user-supplied mission brief read; newer Kotlin/cloud directives supersede older AI2 preferences.
+Prioritize a compilable foreground Kotlin dual-IMU MVP and a cloud-built debug APK. Branch `codex/vspimu-health-intelligence`; baseline `7b3d271f196b2425a65f5294c1d74dba039dfaf1`. Feature-branch pushes, standard free public Ubuntu CI and one-day debug artifacts are now authorized; no main edit, merge or other publication. Zero billing, no API keys, no local Android toolchain installation or APK builds. Full user-supplied mission brief read; newer Kotlin/cloud directives supersede older AI2 preferences.
 
 ## Completed findings — do not repeat audit
 - Repository cloned. Original bundles/firmware/AI2 untouched.
@@ -26,7 +26,7 @@ Vivo Y29 (RAM unknown), Galaxy M31; baseline 6 GB, optimize 8 GB, explore 4 GB f
 Default new tasks GPT-6.1 Sol/medium. High only for difficult integration; Astra/high only exceptional scientific/security failures. At most two concurrent subagents. Narrow disjoint tasks, concise handoffs, no repeated audits/research or successful tests. Lead model changes cannot be set by the subagent launcher; report only actual accepted subagent configurations.
 
 ## Unresolved blockers
-- Permission to push public feature branch/run cloud CI is required by user's explicit restriction; prepare concrete code first.
-- Artifact storage quota/billing guard not verified. Standard public runner is free; persistent artifacts are a separate allowance.
+- Feature branch pushed as 9d7f1db; cloud run 38444344382 in progress. Repair from actual logs only.
+- Owner verified zero-spend blocking and no current usage. Public repository inventory: zero artifacts before push. Runtime guard rechecks sizes and caps total at 100 MiB before one-day uploads.
 - No APK exists; all phone, on-device inference and clinical tests remain unexecuted.
 - Newer V6.1.3 local bundle absent. Do not hold acquisition implementation for it.

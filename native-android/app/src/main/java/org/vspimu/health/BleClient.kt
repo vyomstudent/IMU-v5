@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
@@ -191,7 +192,7 @@ class BleClient(context: Context, private val listener: Listener) {
                 if (!current.setCharacteristicNotification(data!!, true)) { fail("Local notification registration failed"); return@onMain }
                 val descriptor = data!!.getDescriptor(ImuProtocol.CCCD_UUID)
                 val accepted = if (Build.VERSION.SDK_INT >= 33)
-                    current.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == 0
+                    current.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothStatusCodes.SUCCESS
                 else {
                     @Suppress("DEPRECATION")
                     descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
@@ -250,7 +251,7 @@ class BleClient(context: Context, private val listener: Listener) {
         armTimeout(Operation.COMMAND)
         try {
             val accepted = if (Build.VERSION.SDK_INT >= 33)
-                current.writeCharacteristic(characteristic, activeCommand!!.command.bytes(), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == 0
+                current.writeCharacteristic(characteristic, activeCommand!!.command.bytes(), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
             else {
                 characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                 @Suppress("DEPRECATION")

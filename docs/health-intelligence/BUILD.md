@@ -2,10 +2,11 @@
 
 ## Status and scope
 
-The build definition is prepared locally. No Android SDK was installed on the
-user's PC, no cloud build was dispatched, and no APK exists merely because these
-files exist. Public source push, workflow installation, dispatch, release and
-publication require the user's permission. Private health records, the Downloads
+The owner authorized feature-branch pushes, routine repairs and standard free
+Ubuntu cloud checks. The first authorized run is
+https://github.com/vyomstudent/IMU-v5/actions/runs/38444344382 . No Android tooling
+was installed or APK built on the user's PC. Main, merge, release and other
+publication remain prohibited. Private health records, the Downloads
 brief and research data must never be uploaded as CI inputs or artifacts.
 
 ## Pinned build choices
@@ -71,35 +72,30 @@ hourly accrual and charges above allowances. A public runner alone is insufficie
 evidence to guarantee that storing an APK cannot incur a charge. Logs and job
 summaries do not consume the artifact allowance.
 
-Therefore upload is disabled by default. A successful
-default run checks and hashes the APK, then the ephemeral runner removes it. It
-does **not** provide a downloadable APK or satisfy the final APK delivery target.
+The owner has verified zero-spend blocking for Actions and Packages, no existing
+metered usage, and authorized one-day debug APK uploads within the free allowance.
+Read-only public API inspection found zero repository artifacts before the first
+push. No billing setting or spending budget was changed by the agent.
 
-Before an artifact-producing run:
+The runtime guard `native-android/ci/check-artifact-budget.py` checks all accessible
+repository artifact pages and sums unexpired storage. It requires a base APK of
+at most 40 MiB, synthetic reports at most 10 MiB, and a conservative combined
+retained-plus-planned limit of 100 MiB including archive overhead. This leaves
+headroom inside the 500 MB included allowance; it does not measure other account
+repositories or Packages. Owner verification and enforced zero-spend blocking
+remain the account-wide safeguard. If inventory fails, limits are exceeded or
+GitHub rejects storage, upload stops. Never bypass this check or alter billing.
 
-1. Obtain user authorization for the required public repository changes and run.
-2. Verify owner-level available Actions/Packages storage and a zero-spend blocking
-   budget or absence of a payment method. Do not activate billing, change plans or
-   raise paid allowances. Include all account repositories in the storage check.
-3. Obtain explicit authorization to set repository variable
-   `VSPIMU_ARTIFACT_ALLOWANCE_VERIFIED=true` after that verification. This variable
-   is an attestation, not a live quota meter; recheck before each upload.
-4. With permission, set `VSPIMU_APK_UPLOAD_APPROVED=true` for an artifact-producing
-   feature-branch push, then disable it after retrieval. No default-branch change
-   is required. Alternatively manual `upload_apk=true` works only once a workflow
-   is already present on the default branch; do not modify main for this purpose.
-   [Manual dispatch restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch).
-5. Push the authorized feature-branch commit. Both upload approval and the verified
-   allowance are required. APK and synthetic test/lint reports use one-day retention.
-   No health records are uploaded. Minimum supported retention is one day, not zero.
-6. Download the artifact ZIP from the successful run, extract `app-debug.apk`,
-   compare its SHA-256 with the job summary, and preserve the exact commit, run URL
-   and logs with the delivered APK. Download before its one-day expiration.
+Both APK and synthetic report uploads depend on the successful budget step. Each
+artifact is retained for one day. The branch push trigger builds and uploads;
+no workflow installation or change on main is necessary. Manual dispatch remains
+optional and subject to GitHub's default-branch workflow requirement.
 
-Do not label final APK delivery complete until the APK is downloaded and verified.
-An artifact quota error is a delivery failure even when compilation succeeded.
-One-day retention limits storage duration; it does not independently prove zero
-cost. See the official [upload-artifact limits](https://github.com/actions/upload-artifact).
+After a successful run, download its artifact ZIP, extract `app-debug.apk`, and
+match the APK SHA-256 against the cloud job log. Preserve source SHA, run URL,
+size and checksum. Do not label delivery complete merely because assembly passed.
+Physical phone validation is separate. Logs and job summaries remain available
+without persistent artifact storage.
 
 The debug APK is for authorized testing. No release signing key or store publish
 credentials are configured. Phone installation and physical validation need a
