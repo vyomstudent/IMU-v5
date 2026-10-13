@@ -1,5 +1,11 @@
 # Compact handoff — 2026-10-13
 
+**Latest milestone:** Cloud run 38445387199 passed on source 8e67862; 8 JVM + 7 JS
+tests, lint0errors/9warnings, APK signature and uploads passed. APK downloaded and
+hash-verified, 1,319,011 bytes. See APK_MILESTONE.md. Next dependency is physical
+Vivo Y29/Galaxy M31 acceptance. Real gait integration/LLM still pending; do not
+repeat source audits or successful build tests without a change/failure.
+
 ## Current objective and constraints
 Prioritize a compilable foreground Kotlin dual-IMU MVP and a cloud-built debug APK. Branch `codex/vspimu-health-intelligence`; baseline `7b3d271f196b2425a65f5294c1d74dba039dfaf1`. Feature-branch pushes, standard free public Ubuntu CI and one-day debug artifacts are now authorized; no main edit, merge or other publication. Zero billing, no API keys, no local Android toolchain installation or APK builds. Full user-supplied mission brief read; newer Kotlin/cloud directives supersede older AI2 preferences.
 

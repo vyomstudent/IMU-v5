@@ -1,5 +1,11 @@
 # Verification record — acquisition milestone
 
+**Updated:** Cloud build, 8 JVM tests, 7 JS tests, lint (0 errors/9 warnings), APK
+assembly/signature, artifact upload and downloaded hash verification now pass for
+`8e67862ea8c67086f329a1f6bc31c4e096f659c8`. See APK_MILESTONE.md for actual evidence.
+The table below records the earlier pre-cloud state; its NOT RUN build rows are
+superseded by that milestone. Physical/model/clinical tests remain NOT RUN.
+
 Implementation commit: `dfca509e344108e939c24cd3073a474d45a33dbc` on `codex/vspimu-health-intelligence`.
 
 | Check | Result | Scope |
