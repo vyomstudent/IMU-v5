@@ -6,7 +6,7 @@
 - Baseline: `7b3d271f196b2425a65f5294c1d74dba039dfaf1`. Work only on `codex/vspimu-health-intelligence`.
 - Preserve all existing firmware, AI2 projects, reference bundles and research data byte-for-byte. Add implementation under `native-android/`, engineering records under `docs/health-intelligence/`, and CI under `.github/workflows/`.
 - No Inertia-1. No API keys, remote inference, telemetry, paid runners, trials, billing activation, or sensitive-data uploads.
-- No push, public repository mutation, merge, release or publication without the user's permission. Cloud builds require an authorized remote branch and verified free infrastructure. Do not install Android tooling on the user's PC.
+- User authorized routine fixes, commits and pushes to `codex/vspimu-health-intelligence`, standard free public Ubuntu CI and one-day debug APK artifacts within free storage. Owner verified zero-spend blocking and no existing usage; current repository artifact sizes must be checked before each upload. No main changes, merges, releases, paid actions or other publication. Do not install Android tooling on the user's PC.
 
 ## Coordination
 - Lead owns architecture, contracts, integration, MainActivity and acceptance evidence. Eight specialist roles are defined in `agent-instructions/`.

@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: native-android-${{ github.ref }}
@@ -81,22 +82,16 @@ jobs:
             sha256sum "$apk"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Explain artifact availability
-        shell: bash
+      # Owner authorized feature-branch builds/uploads and verified zero-spend blocking.
+      # Recheck current repository artifact sizes before each one-day upload.
+      - name: Verify included artifact budget
+        id: quota
         env:
-          UPLOAD_REQUESTED: ${{ inputs.upload_apk }}
-          ALLOWANCE_VERIFIED: ${{ vars.VSPIMU_ARTIFACT_ALLOWANCE_VERIFIED }}
-          EVENT_NAME: ${{ github.event_name }}
-          UPLOAD_APPROVED: ${{ vars.VSPIMU_APK_UPLOAD_APPROVED }}
-        run: |
-          if [[ "$ALLOWANCE_VERIFIED" != 'true' || ( "$UPLOAD_REQUESTED" != 'true' && "$UPLOAD_APPROVED" != 'true' ) ]]; then
-            echo 'APK upload disabled. This run verifies assembly but provides no downloadable APK. See BUILD.md for the storage verification and authorized rerun requirements.' >> "$GITHUB_STEP_SUMMARY"
-          fi
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 native-android/ci/check-artifact-budget.py
 
-      - name: Upload APK only with explicit verified storage allowance
-        if: >-
-          vars.VSPIMU_ARTIFACT_ALLOWANCE_VERIFIED == 'true' &&
-          (inputs.upload_apk == true || vars.VSPIMU_APK_UPLOAD_APPROVED == 'true')
+      - name: Upload approved debug APK within verified budget
+        if: steps.quota.outputs.allowed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, verified 2026-10-13
         with:
           name: vspimu-debug-apk-${{ github.sha }}
@@ -104,10 +99,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
-      - name: Preserve test and lint reports with the same storage approval
-        if: >-
-          always() && vars.VSPIMU_ARTIFACT_ALLOWANCE_VERIFIED == 'true' &&
-          (inputs.upload_apk == true || vars.VSPIMU_APK_UPLOAD_APPROVED == 'true')
+      - name: Preserve synthetic test and lint reports within verified budget
+        if: steps.quota.outputs.allowed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: vspimu-test-reports-${{ github.sha }}
