@@ -171,7 +171,7 @@ class MainActivity : Activity(), BleClient.Listener, PhoneSensors.Listener {
     private fun message(value: String) { if (!destroyed) statusText.text = value }
     private fun permissions(): Array<String> = if (Build.VERSION.SDK_INT >= 31)
         arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
-    else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
 
     private fun requestScan() {
         if (active || starting || saving || deleting) { message("Stop and save the current assessment first."); return }
