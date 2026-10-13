@@ -1,0 +1,71 @@
+VSPIMU V6 DUAL-IMU RELEASE — TEST EXECUTION RECORD
+Generated: 2026-10-12T12:19:35Z
+
+1. JavaScript syntax checks
+PASS node --check assets/v6_phone_imu.js
+PASS node --check tests/test_v6_phone_imu.js
+
+2. Synthetic unit/regression suite
+PASS — module installs and wraps existing VSPIMU methods without replacing core object
+PASS — opt-in start signals native components while opt-out preserves shank-only mode
+PASS — raw BLE sample structure is captured without changing the existing receiver path
+PASS — shank sequence discontinuities and malformed rows are detected, not silently re-aligned
+PASS — phone accelerometer and gyroscope batches preserve source timestamps and units
+PASS — data-quality analysis flags irregular timestamps and reports a measured rate
+PASS — bounded capture records truncation at configured sample cap
+PASS — final session summary distinguishes observed values from unavailable cross-sensor timing
+PASS — baseline comparison requires five prior quality-eligible comparable sessions and remains descriptive
+PASS — chunked export follows begin → acknowledged chunks → done handshake
+PASS — alternate phone placements require a declared description and keep that metadata
+PASS — lifecycle interruption marks phone streams for review and records an annotation
+PASS — raw export remains available while the existing gait engine finalization is pending
+PASS — event CSV declares separate timestamp domains instead of pretending streams share zero
+PASS — raw and phone CSV exports retain documented units, sequence provenance, and native gyro timestamp
+PASS — existing report handoff receives appended dual-IMU section and original content remains
+PASS — implausible phone sensor values are rejected and counted, never clipped into plausible data
+PASS — wall-clock discontinuity disables cross-sensor comparison rather than applying silent correction
+PASS — partial sensor failure leaves shank-only capture and report available
+
+ALL TESTS PASSED: 19/19
+
+3. Static HTML/integration invariants
+PASS: 120 unique DOM IDs; required UI IDs once; existing engine/viewer precede addon; required APIs and limitations present.
+
+4. Browser smoke integration test (mocked core, real HTML/add-on module)
+{
+  "result": "PASS",
+  "test": "patched HTML DOM + add-on bridge + raw capture + stop/finalization + report handoff",
+  "initial": {
+    "started": "core-start-ok",
+    "stopped": "core-stop-ok",
+    "ingestion": {
+      "accepted": 240,
+      "accSamples": 120,
+      "gyroSamples": 120
+    },
+    "originalReceived": 1,
+    "bridge": [
+      "phone_imu_control:START",
+      "phone_imu_control:STOP"
+    ],
+    "version": "6.0.0",
+    "counts": {
+      "acc": 120,
+      "gyro": 120,
+      "shank": 240
+    }
+  },
+  "final": {
+    "finalized": true,
+    "coreReady": true,
+    "shankSamples": 240,
+    "phoneAccQuality": "OBSERVED",
+    "phoneGyroQuality": "OBSERVED",
+    "resultHasSection": true,
+    "originalReportRetained": true,
+    "handoffHasSection": true
+  },
+  "errors": []
+}
+
+Not executed: physical Android sensors, live BLE, MIT App Inventor packaged app, exact installed core/report runtime assets, and ESP32-C3 hardware upload.

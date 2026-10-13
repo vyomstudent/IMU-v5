@@ -1,0 +1,353 @@
+VSPIMU V6 DUAL-IMU — MIT APP INVENTOR INTEGRATION BLOCKS
+Version: 1.0.0
+
+PURPOSE
+-------
+Add optional Android phone accelerometer/gyroscope capture to the existing working
+VSPIMU app. Do NOT replace the BLE parser, VSPIMU.start(), VSPIMU.stop(), existing
+TCN/Wavelet/AFO code, report viewer, tf.min.js, model.json or its weight shards.
+
+IMPORTANT LIMITATION
+-------------------
+MIT App Inventor's AccelerometerSensor.AccelerationChanged event does not provide
+Android SensorEvent.timestamp. Its timestamp below is Clock.SystemTime at callback.
+GyroscopeSensor.GyroscopeChanged does provide its native nanosecond timestamp.
+Therefore phone gyro intervals are timestamped more precisely than phone acceleration;
+phone-to-shank alignment remains exploratory, not guaranteed millisecond synchronization.
+Motion sensors do not normally require a dangerous runtime Android permission. The
+user-facing checkbox is the explicit opt-in; .Available is checked for absent sensors.
+
+1. BACK UP THE WORKING PROJECT FIRST
+-----------------------------------
+In MIT App Inventor, download/export the current project as an .aia backup before
+changing assets or blocks. No original files are deleted by this package.
+
+2. ADD THESE NON-VISIBLE COMPONENTS
+-----------------------------------
+AccelerometerSensor1 (Sensors > AccelerometerSensor)
+  Enabled = false
+
+GyroscopeSensor1 (Sensors > GyroscopeSensor)
+  Enabled = false
+
+Do not use AccelerometerSensor.MinimumInterval as an acquisition-rate setting: in the
+current MIT App Inventor reference that property throttles repeated Shaking events, not
+the AccelerationChanged data stream. The built-in GyroscopeSensor reference does not
+promise a configurable streaming rate. Actual event rates are measured from callbacks /
+native gyro timestamps in the report; Android may throttle or vary the rate.
+
+ClockPhoneFlush (Sensors > Clock)
+  TimerInterval = 100 ms
+  TimerEnabled = false
+  TimerAlwaysFires = false
+
+FilePhoneExport (Storage > File)
+  Scope = App (app-private storage, where supported by this AI2 version)
+  LegacyMode = false, if the property is shown
+
+Sharing1 (Social > Sharing)
+
+Keep all existing components: BluetoothLE1, WebViewer1, Web1, buttons and status label.
+Do not create a second BluetoothLE component or another WebViewer.
+
+3. ADD GLOBAL VARIABLES
+-----------------------
+global PHONE_IMU_QUEUE = create empty list
+global PHONE_IMU_BATCH = create empty list
+global PHONE_CAPTURE_REQUESTED = false
+global PHONE_CAPTURE_ENABLED = false
+global PHONE_ACC_AVAILABLE_TEXT = "false"
+global PHONE_GYRO_AVAILABLE_TEXT = "false"
+global PHONE_ACC_ENABLED_TEXT = "false"
+global PHONE_GYRO_ENABLED_TEXT = "false"
+
+// Bound the native event queue: never allow an unbounded list if the app/UI pauses.
+global PHONE_IMU_QUEUE_CAP = 500
+ global PHONE_IMU_DROPPED_ROWS = 0
+ global PHONE_IMU_DROPPED_ROWS_REPORTED = 0
+
+global PHONE_EXPORT_ID = ""
+global PHONE_EXPORT_FILENAME = ""
+global PHONE_EXPORT_TOTAL_CHUNKS = 0
+global PHONE_EXPORT_TOTAL_CHARS = 0
+global PHONE_EXPORT_NEXT_INDEX = 0
+global PHONE_EXPORT_RECEIVED_CHARS = 0
+global PHONE_EXPORT_PENDING_ID = ""
+global PHONE_EXPORT_PENDING_INDEX = -1
+global PHONE_EXPORT_PENDING_CHARS = 0
+global PHONE_EXPORT_IS_SAVING = false
+global PHONE_EXPORT_FINISH_PENDING = false
+
+4. PROCEDURE: SendPhoneSensorStatus
+-----------------------------------
+Set these four TEXT globals to literal lowercase JavaScript booleans:
+  PHONE_ACC_AVAILABLE_TEXT = if AccelerometerSensor1.Available then "true" else "false"
+  PHONE_GYRO_AVAILABLE_TEXT = if GyroscopeSensor1.Available then "true" else "false"
+  PHONE_ACC_ENABLED_TEXT = if AccelerometerSensor1.Enabled then "true" else "false"
+  PHONE_GYRO_ENABLED_TEXT = if GyroscopeSensor1.Enabled then "true" else "false"
+
+Call WebViewer1.RunJavaScript with this joined text:
+  "window.VSPIMUPhoneIMU.setNativeSensorStatus("
+  + PHONE_ACC_AVAILABLE_TEXT + ","
+  + PHONE_GYRO_AVAILABLE_TEXT + ","
+  + PHONE_ACC_ENABLED_TEXT + ","
+  + PHONE_GYRO_ENABLED_TEXT + ");"
+
+The JavaScript boolean arguments must be true/false, not quoted text.
+
+5. PROCEDURE: FlushPhoneIMUQueue
+--------------------------------
+1) Set global PHONE_IMU_BATCH to global PHONE_IMU_QUEUE.
+2) Set global PHONE_IMU_QUEUE to a new empty list immediately.
+3) If length of global PHONE_IMU_BATCH > 0:
+   call WebViewer1.RunJavaScript with:
+      join(
+        "window.VSPIMUPhoneIMU.ingestBatch(",
+        call Web1.JsonObjectEncode(global PHONE_IMU_BATCH),
+        ");"
+      )
+4) Set global PHONE_IMU_BATCH to a new empty list.
+5) If PHONE_IMU_DROPPED_ROWS > PHONE_IMU_DROPPED_ROWS_REPORTED, call:
+     WebViewer1.RunJavaScript(
+       join("window.VSPIMUPhoneIMU.recordLifecycleEvent(\"native_queue_overflow_interruption_dropped_",
+            PHONE_IMU_DROPPED_ROWS, "\");")
+     )
+   Then set PHONE_IMU_DROPPED_ROWS_REPORTED to PHONE_IMU_DROPPED_ROWS.
+   This makes an overflow visible as an interrupted/REVIEW session; do not silently
+   treat a queue-overflowed stream as complete.
+
+Use JsonObjectEncode so special characters/values are encoded as JSON. Do not build the
+JavaScript array by joining unescaped sensor values. The batch size depends on the event rate actually delivered by Android; do not interpret
+the 100-ms queue flush interval as the sensor sampling interval.
+
+6. SENSOR EVENT BLOCKS
+----------------------
+when AccelerometerSensor1.AccelerationChanged(xAccel, yAccel, zAccel):
+  if global PHONE_CAPTURE_ENABLED is true:
+    if length(global PHONE_IMU_QUEUE) < global PHONE_IMU_QUEUE_CAP:
+      add items to list global PHONE_IMU_QUEUE:
+        make a list
+          "acc"
+          call ClockPhoneFlush.SystemTime
+          0
+          xAccel
+          yAccel
+          zAccel
+    else:
+      set global PHONE_IMU_DROPPED_ROWS to global PHONE_IMU_DROPPED_ROWS + 1
+
+Values are in m/s^2 and include the measured device-frame gravity/specific-force
+convention of the component. The event's timestamp is callback wall-time; no native
+sensor timestamp is available from this component's event signature.
+
+when GyroscopeSensor1.GyroscopeChanged(xAngularVelocity, yAngularVelocity,
+                                         zAngularVelocity, timestamp):
+  if global PHONE_CAPTURE_ENABLED is true:
+    if length(global PHONE_IMU_QUEUE) < global PHONE_IMU_QUEUE_CAP:
+      add items to list global PHONE_IMU_QUEUE:
+        make a list
+          "gyro"
+          call ClockPhoneFlush.SystemTime
+          timestamp
+          xAngularVelocity
+          yAngularVelocity
+          zAngularVelocity
+    else:
+      set global PHONE_IMU_DROPPED_ROWS to global PHONE_IMU_DROPPED_ROWS + 1
+
+Gyroscope velocities are in degrees/second; timestamp is nanoseconds per AI2 docs.
+
+7. CLOCK FLUSH BLOCK
+--------------------
+when ClockPhoneFlush.Timer:
+  if global PHONE_CAPTURE_ENABLED is true:
+    call FlushPhoneIMUQueue
+
+8. WEBVIEW STRING MESSAGE HANDLER
+---------------------------------
+Extend the EXISTING WebViewer1.WebViewStringChange(value) event. Keep the current status
+message path. Add these branches BEFORE the old plain-text fallback. All payloads are
+JSON with "type" as the first property (the JavaScript uses JSON.stringify in that order).
+
+BRANCH A — value starts with {"type":"phone_imu_control"
+  set local/global D = call Web1.JsonTextDecode(value)
+  set COMMAND = lookup key "command" in dictionary D
+  set REQUESTED = lookup key "requested" in dictionary D
+
+  If COMMAND = "START":
+    set global PHONE_CAPTURE_REQUESTED = true
+    set AccelerometerSensor1.Enabled = AccelerometerSensor1.Available
+    set GyroscopeSensor1.Enabled = GyroscopeSensor1.Available
+    set global PHONE_CAPTURE_ENABLED =
+      (AccelerometerSensor1.Enabled OR GyroscopeSensor1.Enabled)
+    set ClockPhoneFlush.TimerEnabled = global PHONE_CAPTURE_ENABLED
+    call SendPhoneSensorStatus
+    If neither sensor Available:
+      set LabelStatus.Text = "Phone motion sensors unavailable; shank-only capture continues."
+
+  If COMMAND = "STOP":
+    call FlushPhoneIMUQueue FIRST (the JS module accepts this queued stop-tail batch)
+    set global PHONE_CAPTURE_REQUESTED = false
+    set global PHONE_CAPTURE_ENABLED = false
+    set ClockPhoneFlush.TimerEnabled = false
+    set AccelerometerSensor1.Enabled = false
+    set GyroscopeSensor1.Enabled = false
+    call SendPhoneSensorStatus
+
+BRANCH B — value starts with {"type":"phone_imu_export_begin"
+  Decode D. Set the globals from keys:
+    exportId -> PHONE_EXPORT_ID
+    filename -> PHONE_EXPORT_FILENAME
+    totalChunks -> PHONE_EXPORT_TOTAL_CHUNKS
+    totalChars -> PHONE_EXPORT_TOTAL_CHARS
+  Set PHONE_EXPORT_NEXT_INDEX = 0
+  Set PHONE_EXPORT_RECEIVED_CHARS = 0
+  Set PHONE_EXPORT_IS_SAVING = false
+  Set PHONE_EXPORT_FINISH_PENDING = false
+  Call WebViewer1.RunJavaScript:
+    join("window.VSPIMUPhoneIMU.ackExportBegin(\"", PHONE_EXPORT_ID, "\");")
+
+BRANCH C — value starts with {"type":"phone_imu_export_chunk"
+  Decode D. Read exportId, filename, index and text.
+  Only accept the chunk when:
+    exportId = PHONE_EXPORT_ID
+    index = PHONE_EXPORT_NEXT_INDEX
+    PHONE_EXPORT_IS_SAVING = false
+  Store:
+    PHONE_EXPORT_PENDING_ID = exportId
+    PHONE_EXPORT_PENDING_INDEX = index
+    PHONE_EXPORT_PENDING_CHARS = length(text)
+    PHONE_EXPORT_IS_SAVING = true
+  If index = 0:
+    call FilePhoneExport.SaveFile(text, PHONE_EXPORT_FILENAME)
+  Else:
+    call FilePhoneExport.AppendToFile(text, PHONE_EXPORT_FILENAME)
+
+BRANCH D — value starts with {"type":"phone_imu_export_done"
+  Decode D. Check:
+    exportId = PHONE_EXPORT_ID
+    PHONE_EXPORT_NEXT_INDEX = PHONE_EXPORT_TOTAL_CHUNKS
+    PHONE_EXPORT_RECEIVED_CHARS = PHONE_EXPORT_TOTAL_CHARS
+    PHONE_EXPORT_IS_SAVING = false
+  If every check passes:
+    call Sharing1.ShareFile(PHONE_EXPORT_FILENAME)
+    call WebViewer1.RunJavaScript:
+      join("window.VSPIMUPhoneIMU.ackExportComplete(\"", PHONE_EXPORT_ID,
+           "\",true,\"saved\");")
+  Else:
+    call WebViewer1.RunJavaScript:
+      join("window.VSPIMUPhoneIMU.ackExportComplete(\"", PHONE_EXPORT_ID,
+           "\",false,\"chunk/length mismatch\");")
+  Reset PHONE_EXPORT_ID and PHONE_EXPORT_FILENAME after ShareFile is invoked.
+
+BRANCH E — existing status JSON starts with {"type":"status"
+  KEEP the existing status handler that decodes "status" and "detail" into LabelStatus.
+
+ELSE:
+  Keep the existing fallback display for plain-text status messages.
+
+8A. FILEPHONEEXPORT.AFTERFILESAVED(filename)
+--------------------------------------------
+If PHONE_EXPORT_IS_SAVING is true and filename = PHONE_EXPORT_FILENAME:
+  set PHONE_EXPORT_RECEIVED_CHARS =
+      PHONE_EXPORT_RECEIVED_CHARS + PHONE_EXPORT_PENDING_CHARS
+  set PHONE_EXPORT_NEXT_INDEX = PHONE_EXPORT_PENDING_INDEX + 1
+  set PHONE_EXPORT_IS_SAVING = false
+  call WebViewer1.RunJavaScript:
+    join("window.VSPIMUPhoneIMU.ackExportChunk(\"",
+         PHONE_EXPORT_PENDING_ID, "\",",
+         PHONE_EXPORT_PENDING_INDEX, ");")
+
+This event is the acknowledgement: do not ask JavaScript for the next chunk until the
+file component reports the previous write has completed. That keeps each CSV intact.
+
+8B. FILE ERROR HANDLING
+-----------------------
+If the File component exposes ErrorOccurred in your AI2 version, handle it by:
+  set global PHONE_EXPORT_IS_SAVING = false
+  call WebViewer1.RunJavaScript:
+    join("window.VSPIMUPhoneIMU.ackExportComplete(\"",
+         PHONE_EXPORT_ID, "\",false,\"file component error\");")
+  set LabelStatus.Text = "Data export failed; original session remains in memory."
+
+If your File version does not expose ErrorOccurred, wrap this with the Screen.ErrorOccurred
+event and check the component/function that triggered the failure before acknowledging.
+Never acknowledge a failed write as success.
+
+9. START / STOP BUTTONS — KEEP EXISTING BLE WIRING
+--------------------------------------------------
+ButtonStart.Click: retain the current blocks exactly:
+  if BLE_READY:
+    WebViewer1.RunJavaScript("window.VSPIMU.start();")
+    BluetoothLE1.WriteStrings(SERVICE_UUID, CMD_UUID, ["START"])
+
+The JS add-on reads the checkbox + phone placement and sends the phone sensor START
+control. Do not send a second phone START from ButtonStart.
+
+ButtonStop.Click: add only a call to FlushPhoneIMUQueue at the very beginning, then keep:
+  BluetoothLE1.WriteStrings(SERVICE_UUID, CMD_UUID, ["STOP"])
+  WebViewer1.RunJavaScript("window.VSPIMU.stop();")
+
+The JavaScript stop wrapper sends the native STOP control too. Repeated STOP commands are
+safe; phone components must end disabled.
+
+10. SCREEN INITIALIZATION / BACK BUTTON
+----------------------------------------
+Screen1.Initialize:
+  queue = empty list
+  PHONE_CAPTURE_REQUESTED = false
+  PHONE_CAPTURE_ENABLED = false
+  PHONE_IMU_DROPPED_ROWS = 0
+  PHONE_IMU_DROPPED_ROWS_REPORTED = 0
+  ClockPhoneFlush.TimerEnabled = false
+  AccelerometerSensor1.Enabled = false
+  GyroscopeSensor1.Enabled = false
+  Keep the existing BLE/WebViewer setup. Do not claim a fixed sensor ODR from these
+  components; rates are estimated after the session from sample timestamps/callbacks.
+
+Screen1.BackPressed:
+  if PHONE_CAPTURE_ENABLED:
+    call FlushPhoneIMUQueue
+    set ClockPhoneFlush.TimerEnabled = false
+    set PHONE_CAPTURE_ENABLED = false
+    set AccelerometerSensor1.Enabled = false
+    set GyroscopeSensor1.Enabled = false
+  If the existing app is recording, call its normal STOP procedure rather than exit with
+  an apparently complete session. Do not claim the sensors continue in the background.
+
+The foreground workflow is the supported first step. App Inventor does not expose a
+portable, reliable substitute for a native Android foreground-service lifecycle here.
+If the app is backgrounded or the screen is turned off, a sampling gap may occur; quality
+checks must remain visible. Do not advertise all-day continuous monitoring.
+
+11. BLE DISCONNECT / RECONNECT
+------------------------------
+Keep current BLE disconnect handling. If a raw stream disconnect occurs mid-session,
+mark/stop that assessment and start a new session after reconnecting rather than splicing
+sequences that reset to zero into one clean record. The quality/export layer will flag
+sequence discontinuities it receives; it cannot reconstruct samples never received.
+
+12. ASSETS TO ADD / REPLACE
+---------------------------
+V6 ASSET MIGRATION (BACK UP FIRST)
+----------------------------------
+1. Export the existing .aia as a backup. Do not replace that backup.
+2. Add vspimu_v6_single.html and v6_phone_imu.js as new assets.
+3. Copy the existing core JS assets byte-for-byte to these V6 names, then upload the copies:
+     v5_gait.js                    -> v6_gait.js
+     v5_report_viewer_V5_9_FINAL.js -> v6_report_viewer_FINAL.js
+     v5_report_intelligence.js     -> v6_report_intelligence.js
+   Do not edit the source contents when renaming them. Keep old files until device tests pass.
+4. Keep tf.min.js, model.json and all its matching TCN weight shards, plus any ONNX/ORT
+   runtime assets, under their current exact names.
+5. Set WebViewer1.HomeUrl to:
+     http://localhost/vspimu_v6_single.html
+   Use the same localhost asset-serving scheme as the currently working app.
+
+BLE COMPATIBILITY
+-----------------
+The BLE advertised name deliberately remains GAIT-V5-C3 and all three UUIDs stay unchanged.
+Do not change the existing ConnectMatchingName, RegisterForShorts or command UUID values.
+This preserves the current firmware/app pairing while the product UI and app assets migrate to V6.
+
+Do not upload this package as a replacement .aia; this is a patch for the current project.
