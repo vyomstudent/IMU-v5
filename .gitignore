@@ -1,0 +1,12 @@
+**/.gradle/
+**/build/
+**/local.properties
+**/*.jks
+**/*.keystore
+**/*.apk
+**/*.aab
+**/__pycache__/
+test-results/
+*.gguf
+*.task
+*.litertlm
