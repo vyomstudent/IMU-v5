@@ -1,0 +1,536 @@
+name: Build VSPIMU APK
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Scaffold Kotlin project
+        run: |
+          python3 <<'PYEOF'
+import os, textwrap
+
+BASE = "native-android"
+A = "app/src/main"
+K = f"{A}/java/com/vspimu/app"
+DIRS = [BASE, f"{BASE}/gradle/wrapper", f"{BASE}/{K}",
+        f"{BASE}/{A}/res/values", f"{BASE}/{A}/res/xml", f"{BASE}/{A}/assets"]
+for d in DIRS:
+    os.makedirs(d, exist_ok=True)
+
+FILES = {}
+
+FILES[f"{BASE}/settings.gradle.kts"] = '''
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories { google(); mavenCentral() }
+}
+rootProject.name = "VSPIMU"
+include(":app")
+'''
+
+FILES[f"{BASE}/build.gradle.kts"] = '''
+plugins {
+    id("com.android.application") version "8.5.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+}
+'''
+
+FILES[f"{BASE}/gradle.properties"] = '''
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+android.useAndroidX=true
+kotlin.code.style=official
+android.nonTransitiveRClass=true
+'''
+
+FILES[f"{BASE}/gradle/wrapper/gradle-wrapper.properties"] = '''
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+'''
+
+FILES[f"{BASE}/app/build.gradle.kts"] = '''
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.vspimu.app"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "com.vspimu.app"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 1
+        versionName = "6.2.0-prototype"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+
+    packaging {
+        resources.excludes += setOf("META-INF/*.kotlin_module")
+    }
+}
+
+dependencies {
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.webkit:webkit:1.11.0")
+    implementation("com.google.android.material:material:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+}
+'''
+
+FILES[f"{BASE}/{A}/AndroidManifest.xml"] = '''
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="true"/>
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false"/>
+
+    <application
+        android:allowBackup="false"
+        android:label="VSPIMU"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.VSPIMU">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+'''
+
+FILES[f"{BASE}/{A}/res/values/strings.xml"] = '''
+<resources>
+    <string name="app_name">VSPIMU</string>
+</resources>
+'''
+
+FILES[f"{BASE}/{A}/res/values/themes.xml"] = '''
+<resources>
+    <style name="Theme.VSPIMU" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>
+'''
+
+FILES[f"{BASE}/{A}/res/xml/network_security_config.xml"] = '''
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false"/>
+</network-security-config>
+'''
+
+FILES[f"{BASE}/{K}/MainActivity.kt"] = '''
+package com.vspimu.app
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
+import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var webView: WebView
+    private lateinit var bridge: JsBridge
+    private lateinit var sensors: PhoneSensorManager
+    private lateinit var ble: BleManager
+
+    companion object {
+        private const val TAG = "VSPIMU"
+        private const val REQ_PERMS = 1001
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        sensors = PhoneSensorManager(this)
+        ble = BleManager(this) { batch -> sendToJs("onShankBatch", batch) }
+        bridge = JsBridge(
+            onStartPhone = { side -> sensors.start(side) },
+            onStopPhone = { sensors.stop() },
+            onBleScan = { ble.startScan() },
+            onBleConnect = { addr -> ble.connect(addr) },
+            onBleDisconnect = { ble.disconnect() },
+            onLog = { msg -> Log.i(TAG, msg) }
+        )
+
+        webView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.mediaPlaybackRequiresUserGesture = false
+            webViewClient = WebViewClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                    Log.i(TAG, "JS: ${m.message()} @${m.lineNumber()}")
+                    return true
+                }
+            }
+            addJavascriptInterface(bridge, "VSPIMUNative")
+            loadUrl("file:///android_asset/index.html")
+        }
+
+        setContentView(webView)
+        requestNeededPermissions()
+    }
+
+    private fun requestNeededPermissions() {
+        val need = mutableListOf<String>()
+        val required = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            required += Manifest.permission.BLUETOOTH_SCAN
+            required += Manifest.permission.BLUETOOTH_CONNECT
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            required += Manifest.permission.POST_NOTIFICATIONS
+        }
+        for (p in required) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                need += p
+            }
+        }
+        if (need.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, need.toTypedArray(), REQ_PERMS)
+        }
+    }
+
+    private fun sendToJs(fn: String, json: String) {
+        webView.post {
+            webView.evaluateJavascript("window.VSPIMUNativeBridge && window.VSPIMUNativeBridge.$fn($json);", null)
+        }
+    }
+
+    override fun onDestroy() {
+        sensors.stop()
+        ble.disconnect()
+        super.onDestroy()
+    }
+}
+'''
+
+FILES[f"{BASE}/{K}/JsBridge.kt"] = '''
+package com.vspimu.app
+
+import android.webkit.JavascriptInterface
+
+class JsBridge(
+    private val onStartPhone: (String) -> Unit,
+    private val onStopPhone: () -> Unit,
+    private val onBleScan: () -> Unit,
+    private val onBleConnect: (String) -> Unit,
+    private val onBleDisconnect: () -> Unit,
+    private val onLog: (String) -> Unit
+) {
+    @JavascriptInterface fun startPhoneSensors(side: String) = onStartPhone(side)
+    @JavascriptInterface fun stopPhoneSensors() = onStopPhone()
+    @JavascriptInterface fun startBleScan() = onBleScan()
+    @JavascriptInterface fun connectBle(address: String) = onBleConnect(address)
+    @JavascriptInterface fun disconnectBle() = onBleDisconnect()
+    @JavascriptInterface fun log(message: String) = onLog(message)
+    @JavascriptInterface fun version(): String = "6.2.0-prototype"
+}
+'''
+
+FILES[f"{BASE}/{K}/PhoneSensorManager.kt"] = '''
+package com.vspimu.app
+
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
+
+class PhoneSensorManager(private val ctx: Context) : SensorEventListener {
+
+    private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val accel = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val gyro = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+    private val running = AtomicBoolean(false)
+    private val buffer = JSONArray()
+    private var lastFlush = 0L
+    private var side = "same_leg"
+    private var onBatch: ((String) -> Unit)? = null
+
+    fun setBatchSink(sink: (String) -> Unit) { onBatch = sink }
+
+    fun start(placement: String) {
+        if (running.get()) return
+        side = placement
+        buffer.clear()
+        lastFlush = System.currentTimeMillis()
+        accel?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        gyro?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        running.set(true)
+        Log.i("VSPIMU", "phone sensors started, side=$placement")
+    }
+
+    fun stop() {
+        sm.unregisterListener(this)
+        running.set(false)
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (!running.get()) return
+        val obj = JSONObject()
+        obj.put("sensor", if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) "accel" else "gyro")
+        obj.put("t_ns", event.timestamp)
+        obj.put("t_source", "native")
+        val a = JSONArray()
+        for (v in event.values) a.put(v.toDouble())
+        obj.put("v", a)
+        buffer.put(obj)
+        val now = System.currentTimeMillis()
+        if (now - lastFlush > 200 && buffer.length() > 0) {
+            flush()
+            lastFlush = now
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun flush() {
+        val payload = JSONObject()
+        payload.put("side", side)
+        payload.put("samples", buffer)
+        onBatch?.invoke(payload.toString())
+        buffer = JSONArray()
+    }
+}
+'''
+
+FILES[f"{BASE}/{K}/BleManager.kt"] = '''
+package com.vspimu.app
+
+import android.bluetooth.*
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.Context
+import android.os.Build
+import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+class BleManager(private val ctx: Context, private val onBatch: (String) -> Unit) {
+
+    companion object {
+        private const val TAG = "VSPIMU-BLE"
+        val SERVICE_UUID: UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
+        val CHAR_UUID: UUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
+        val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+    }
+
+    private val bm = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    private val adapter: BluetoothAdapter? get() = bm.adapter
+    private var gatt: BluetoothGatt? = null
+    private val lineBuffer = StringBuilder()
+
+    private val scanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val name = result.device.name ?: return
+            if (name.contains("VSPIMU", ignoreCase = true)) {
+                Log.i(TAG, "Found ${result.device.address}")
+                adapter?.bluetoothLeScanner?.stopScan(this)
+                connect(result.device.address)
+            }
+        }
+        override fun onScanFailed(errorCode: Int) { Log.e(TAG, "scan fail $errorCode") }
+    }
+
+    fun startScan() {
+        val scanner = adapter?.bluetoothLeScanner ?: return
+        val s = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        scanner.startScan(null, s, scanCallback)
+    }
+
+    fun connect(address: String) {
+        val dev = adapter?.getRemoteDevice(address) ?: return
+        gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            dev.connectGatt(ctx, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        else dev.connectGatt(ctx, false, gattCallback)
+    }
+
+    fun disconnect() {
+        gatt?.disconnect(); gatt?.close(); gatt = null
+    }
+
+    private val gattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) g.discoverServices()
+        }
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            val ch = g.getService(SERVICE_UUID)?.getCharacteristic(CHAR_UUID) ?: return
+            g.setCharacteristicNotification(ch, true)
+            val d = ch.descriptors.firstOrNull { it.uuid == CCCD }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(d, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                @Suppress("DEPRECATION")
+                d?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                @Suppress("DEPRECATION")
+                g.writeDescriptor(d)
+            }
+        }
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
+            ingest(String(value, Charsets.UTF_8))
+        }
+        @Deprecated("Deprecated in Java")
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            @Suppress("DEPRECATION")
+            ingest(String(c.value ?: ByteArray(0), Charsets.UTF_8))
+        }
+    }
+
+    private fun ingest(chunk: String) {
+        lineBuffer.append(chunk)
+        var idx: Int
+        while (true) {
+            idx = lineBuffer.indexOf("\\n")
+            if (idx < 0) break
+            val line = lineBuffer.substring(0, idx).trim()
+            lineBuffer.delete(0, idx + 1)
+            if (line.isEmpty()) continue
+            try {
+                val obj = JSONObject(line)
+                obj.put("t_source", "native")
+                val batch = JSONObject()
+                batch.put("source", "esp32")
+                val arr = JSONArray(); arr.put(obj)
+                batch.put("samples", arr)
+                onBatch(batch.toString())
+            } catch (e: Exception) {
+                Log.w(TAG, "malformed line: $line")
+            }
+        }
+    }
+}
+'''
+
+for rel, content in FILES.items():
+    path = os.path.join(rel) if rel.startswith(BASE) else os.path.join(BASE, rel)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        f.write(textwrap.dedent(content).lstrip("\n"))
+    print("wrote", path)
+PYEOF
+
+      - name: Copy VSPIMU web assets into APK
+        run: |
+          set -e
+          SRC="VSPIMU_V5_8_12_PARITY_REPORT_FIXED_FINAL"
+          DST="native-android/app/src/main/assets"
+          if [ -f "$SRC/VSPIMU_V5_8_FINAL.html" ]; then
+            cp "$SRC/VSPIMU_V5_8_FINAL.html" "$DST/index.html"
+          elif [ -f "$SRC/index.html" ]; then
+            cp "$SRC/index.html" "$DST/index.html"
+          else
+            echo "<html><body style='background:#0b1020;color:#fff;font-family:sans-serif;padding:24px'><h2>VSPIMU</h2><p>V5.8 HTML asset not found in repo. Place VSPIMU_V5_8_FINAL.html in $SRC/</p></body></html>" > "$DST/index.html"
+          fi
+          for f in "$SRC"/*.js; do
+            [ -f "$f" ] && cp "$f" "$DST/" || true
+          done
+          # optional: session_quality.js if present at repo root
+          [ -f "session_quality.js" ] && cp session_quality.js "$DST/" || true
+          ls -la "$DST"
+
+      - name: Generate Gradle wrapper
+        working-directory: native-android
+        run: |
+          gradle wrapper --gradle-version 8.7 --distribution-type bin
+
+      - name: Build Debug APK
+        working-directory: native-android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vspimu-debug-apk
+          path: native-android/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-failure-logs
+          path: native-android/app/build/reports/**
+          if-no-files-found: ignore
