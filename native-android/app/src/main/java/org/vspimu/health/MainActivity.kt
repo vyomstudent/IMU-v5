@@ -96,7 +96,7 @@ class MainActivity : Activity(), BleClient.Listener, PhoneSensors.Listener {
     }
 
     private fun buildScreen() {
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply { isFillViewport = true }
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(18), dp(16), dp(24))
@@ -122,7 +122,7 @@ class MainActivity : Activity(), BleClient.Listener, PhoneSensors.Listener {
         body.addView(label("Phone placement"))
         pocket = selector(arrayOf("Left front pocket", "Right front pocket")); body.addView(pocket)
         statusText = label("Ready. Connect the wearable to begin."); body.addView(statusText)
-        body.addView(button("Find wearable") { requestScan() })
+        body.addView(button("Connect GAIT-V5-C3") { requestScan() })
         body.addView(button("Disconnect wearable") { if (active || starting) finishSession("user_disconnect", true); ble.disconnect() })
         startButton = button("Start 123-second assessment") { startAssessment() }; body.addView(startButton)
         stopButton = button("Stop assessment") { finishSession("user_stop", false) }; body.addView(stopButton)
@@ -155,6 +155,9 @@ class MainActivity : Activity(), BleClient.Listener, PhoneSensors.Listener {
             override fun onPageFinished(view: WebView, url: String) { pageReady = url == PAGE_URL; render() }
         }
         body.addView(page, LinearLayout.LayoutParams(-1, dp(620)))
+        // The dashboard is display-only; let the outer screen own vertical scrolling so every
+        // native control stays reachable on compact devices.
+        page.isNestedScrollingEnabled = false
         page.loadUrl(PAGE_URL)
         updateControls()
     }
@@ -188,11 +191,10 @@ class MainActivity : Activity(), BleClient.Listener, PhoneSensors.Listener {
     }
     override fun onDevice(device: BleClient.Device) {
         if (active || starting || destroyed) return
-        ble.stopScan()
-        AlertDialog.Builder(this).setTitle("Connect wearable?")
-            .setMessage("${device.name}\nSignal ${device.rssi} dBm\nChoose your wearable; Bluetooth name alone does not verify its identity.")
-            .setPositiveButton("Connect") { _, _ -> ble.connect(device.address) }
-            .setNegativeButton("Cancel", null).show()
+        message("Found ${device.name} (${device.rssi} dBm); verifying wearable connection")
+        // The scan is filtered to the fixed ESP32-C3 advertising name. The BLE client still
+        // rejects a device that lacks the expected VSPIMU service, raw stream and command path.
+        ble.connect(device.address)
     }
     override fun onState(state: BleClient.State, detail: String) {
         message(detail)

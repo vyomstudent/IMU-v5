@@ -12,6 +12,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -73,9 +74,14 @@ class BleClient(context: Context, private val listener: Listener) {
                 override fun onScanResult(callbackType: Int, result: ScanResult) = onMain {
                     if (scanCallback !== this) return@onMain
                     val advertisedName = result.scanRecord?.deviceName
+                    // ESP32/NimBLE puts its local name in the scan response. Some Android builds
+                    // expose it only as the cached BluetoothDevice name, so accept either source.
+                    val cachedName = try { result.device.name } catch (_: SecurityException) { null }
                     val advertisesService = result.scanRecord?.serviceUuids?.any { it.uuid == ImuProtocol.SERVICE_UUID } == true
-                    // V6 firmware advertises a name, but does not add its service UUID to advertising.
-                    if (advertisedName != ImuProtocol.DEVICE_NAME && !advertisesService) return@onMain
+                    // The VSPIMU ESP32-C3 does not place its service UUID in advertisements; the
+                    // name filter is therefore the discovery key. GATT discovery below verifies
+                    // the full service and characteristic contract before READY is reported.
+                    if (advertisedName != ImuProtocol.DEVICE_NAME && cachedName != ImuProtocol.DEVICE_NAME && !advertisesService) return@onMain
                     try {
                         val address = result.device.address
                         if (found.add(address)) listener.onDevice(Device(address, advertisedName ?: ImuProtocol.DEVICE_NAME, result.rssi))
@@ -90,11 +96,12 @@ class BleClient(context: Context, private val listener: Listener) {
             }
             scanner = currentScanner
             scanCallback = callback
-            changeState(State.SCANNING, "Select the wearable from discovered devices")
-            currentScanner.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback)
+            changeState(State.SCANNING, "Looking for GAIT-V5-C3; it will connect automatically")
+            val target = ScanFilter.Builder().setDeviceName(ImuProtocol.DEVICE_NAME).build()
+            currentScanner.startScan(listOf(target), ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback)
             scanTimeout = Runnable {
                 stopScanInternal()
-                if (state == State.SCANNING) changeState(State.IDLE, if (found.isEmpty()) "No matching wearable found; retry scan" else "Scan complete; select a wearable")
+                if (state == State.SCANNING) changeState(State.IDLE, if (found.isEmpty()) "GAIT-V5-C3 was not found. Confirm it has power and is advertising, then try again." else "Wearable discovery complete")
             }.also { main.postDelayed(it, SCAN_TIMEOUT_MS) }
         } catch (_: SecurityException) { fail("Bluetooth scan permission was denied") }
         catch (e: RuntimeException) { fail("Unable to scan: ${e.javaClass.simpleName}") }
